@@ -163,20 +163,20 @@ def test_every_tool_has_an_args_model():
 
 def test_args_normalize_doctor_id():
     args = ProposeBookingArgs.model_validate_json(
-        '{"doctor_id": " d01 ", "day": "Thursday", "start": "10:00"}'
+        '{"doctor_id": " d01 ", "day": "Thursday", "start": " 10:00 "}'
     )
 
     assert args.doctor_id == "D01"
-    assert args.start == time(10, 0)
+    assert args.start == "10:00"
 
 
 @pytest.mark.parametrize(
     "payload",
     [
-        '{"doctor_id": "D01", "day": "thursday", "start": "25:00"}',
         '{"doctor_id": "D01", "day": "", "start": "10:00"}',
         '{"doctor_id": "D01", "start": "10:00"}',
-        '{"doctor_id": "D01", "day": "thursday", "start": "ten"}',
+        '{"doctor_id": "D01", "day": "thursday", "start": ""}',
+        '{"doctor_id": "D01", "day": "thursday", "start": 10}',
     ],
 )
 def test_bad_booking_args_are_rejected(payload):
@@ -184,11 +184,20 @@ def test_bad_booking_args_are_rejected(payload):
         ProposeBookingArgs.model_validate_json(payload)
 
 
-def test_find_slots_schema_lists_allowed_values():
+def test_find_slots_schema_names_allowed_values_in_descriptions():
     schema = json.dumps(FindSlotsArgs.model_json_schema())
 
-    assert '"dentistry"' in schema
-    assert '"morning"' in schema
+    assert "dentistry, dermatology, pediatrics or general" in schema
+    assert "morning" in schema
+
+
+@pytest.mark.parametrize("model", ARGS_MODELS, ids=lambda model: model.__name__)
+def test_schemas_leave_strict_checks_to_python(model):
+    schema = json.dumps(model.model_json_schema())
+
+    assert '"enum"' not in schema
+    assert '"format"' not in schema
+    assert '"pattern"' not in schema
 
 
 def test_list_doctors(tools):
@@ -337,7 +346,7 @@ def test_get_my_appointments_never_shows_other_patients(make_tools):
 def test_propose_booking_stores_a_pending_action_only(tools, database):
     before = appointment_rows(database)
 
-    result = tools.propose_booking("D01", "thursday", time(10, 0))
+    result = tools.propose_booking("D01", "thursday", "10:00")
 
     assert result == {
         "status": "awaiting_confirmation",
@@ -358,29 +367,33 @@ def test_propose_booking_stores_a_pending_action_only(tools, database):
 
 
 def test_propose_result_hides_the_action_id(tools, database):
-    result = tools.propose_booking("D01", "thursday", time(10, 0))
+    result = tools.propose_booking("D01", "thursday", "10:00")
 
     assert pending(database, tools).action_id not in json.dumps(result)
 
 
-def test_propose_booking_drops_a_timezone(tools, database):
-    aware = time.fromisoformat("10:00+02:00")
+@pytest.mark.parametrize("start", ["10:00", " 10:00 ", "10:00:00", "10:00+02:00"])
+def test_propose_booking_reads_the_start_time(tools, database, start):
+    tools.propose_booking("D01", "thursday", start)
 
-    tools.propose_booking("D01", "thursday", aware)
-
-    assert pending(database, tools).proposal.starts_at.tzinfo is None
+    starts_at = pending(database, tools).proposal.starts_at
+    assert starts_at == datetime(2026, 10, 22, 10, 0)
+    assert starts_at.tzinfo is None
 
 
 @pytest.mark.parametrize(
     ("args", "message"),
     [
-        (("D01", "thursday", time(10, 30)), "already booked"),
-        (("D01", "thursday", time(8, 0)), "no appointment slot"),
-        (("D01", "thursday", time(10, 15)), "no appointment slot"),
-        (("D01", "friday", time(10, 0)), "no appointment slot"),
-        (("D99", "thursday", time(10, 0)), "Unknown doctor D99"),
-        (("D01", "today", time(9, 0)), "already passed"),
-        (("D03", "saturday", time(11, 0)), "already booked"),
+        (("D01", "thursday", "10:30"), "already booked"),
+        (("D01", "thursday", "08:00"), "no appointment slot"),
+        (("D01", "thursday", "10:15"), "no appointment slot"),
+        (("D01", "friday", "10:00"), "no appointment slot"),
+        (("D99", "thursday", "10:00"), "Unknown doctor D99"),
+        (("D01", "today", "09:00"), "already passed"),
+        (("D01", "thursday", "10am"), "Unknown time '10am'; use 24-hour HH:MM"),
+        (("D01", "thursday", "9:00"), "Unknown time"),
+        (("D01", "thursday", "25:00"), "Unknown time"),
+        (("D03", "saturday", "11:00"), "already booked"),
     ],
 )
 def test_propose_booking_errors_reach_the_model(tools, database, args, message):
@@ -418,7 +431,7 @@ def test_propose_cancellation_cannot_touch_others(tools, database, appointment_i
 def test_propose_reschedule(tools, database):
     before = appointment_rows(database)
 
-    result = tools.propose_reschedule(1002, "tuesday", time(12, 0))
+    result = tools.propose_reschedule(1002, "tuesday", "12:00")
 
     assert result["action"] == "reschedule"
     assert result["appointment_id"] == 1002
@@ -433,10 +446,10 @@ def test_propose_reschedule(tools, database):
 @pytest.mark.parametrize(
     ("args", "message"),
     [
-        ((1003, "thursday", time(9, 0)), "not one of your upcoming"),
-        ((1002, "saturday", time(11, 0)), "already at that time"),
-        ((1002, "thursday", time(10, 0)), "Dr. Ahmed Farouk has no appointment slot"),
-        ((1002, "someday", time(10, 0)), "Unknown day"),
+        ((1003, "thursday", "09:00"), "not one of your upcoming"),
+        ((1002, "saturday", "11:00"), "already at that time"),
+        ((1002, "thursday", "10:00"), "Dr. Ahmed Farouk has no appointment slot"),
+        ((1002, "someday", "10:00"), "Unknown day"),
     ],
 )
 def test_propose_reschedule_errors(tools, database, args, message):
@@ -447,10 +460,10 @@ def test_propose_reschedule_errors(tools, database, args, message):
 
 
 def test_new_proposal_replaces_the_previous_one(tools, database):
-    tools.propose_booking("D01", "thursday", time(10, 0))
+    tools.propose_booking("D01", "thursday", "10:00")
     first = pending(database, tools)
 
-    tools.propose_booking("D01", "thursday", time(11, 30))
+    tools.propose_booking("D01", "thursday", "11:30")
 
     with database.connect() as connection:
         old = ActionRepository(connection).find(first.action_id, "P1001")
@@ -463,8 +476,8 @@ def test_tool_results_are_json_ready(tools):
         tools.list_doctors(),
         tools.find_slots("thursday", specialty=Specialty.DENTISTRY),
         tools.get_my_appointments(),
-        tools.propose_booking("D01", "thursday", time(10, 0)),
-        tools.propose_reschedule(1002, "tuesday", time(12, 0)),
+        tools.propose_booking("D01", "thursday", "10:00"),
+        tools.propose_reschedule(1002, "tuesday", "12:00"),
         tools.propose_cancellation(1002),
     ]
 
@@ -473,8 +486,38 @@ def test_tool_results_are_json_ready(tools):
 
 
 def test_tools_book_nothing_until_confirm(tools, database):
-    tools.propose_booking("D01", "thursday", time(10, 0))
+    tools.propose_booking("D01", "thursday", "10:00")
     with database.connect() as connection:
         assert not AppointmentRepository(connection).is_doctor_booked(
             "D01", datetime(2026, 10, 22, 10, 0)
         )
+
+
+@pytest.mark.parametrize("value", ["dentistry", "Dentistry", " DENTISTRY "])
+def test_specialty_is_matched_in_python(tools, value):
+    result = tools.find_slots("thursday", specialty=value)
+
+    assert [d["doctor_id"] for d in result["doctors"]] == ["D01", "D02"]
+    assert len(tools.list_doctors(value)["doctors"]) == 2
+
+
+@pytest.mark.parametrize("value", ["cardiology", "أسنان", "dentist"])
+def test_unknown_specialty_goes_back_to_the_model(tools, value):
+    message = "use dentistry, dermatology, pediatrics or general"
+
+    with pytest.raises(ToolError, match=message):
+        tools.find_slots("thursday", specialty=value)
+    with pytest.raises(ToolError, match=message):
+        tools.list_doctors(value)
+
+
+@pytest.mark.parametrize("value", ["Morning", " EVENING ", "any"])
+def test_part_of_day_is_matched_in_python(tools, value):
+    result = tools.find_slots("thursday", doctor_id="D02", part_of_day=value)
+
+    assert result["part_of_day"] == value.strip().lower()
+
+
+def test_unknown_part_of_day_goes_back_to_the_model(tools):
+    with pytest.raises(ToolError, match="Unknown part of day 'noon'"):
+        tools.find_slots("thursday", doctor_id="D01", part_of_day="noon")

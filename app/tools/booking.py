@@ -18,12 +18,14 @@ from app.schemas.actions import (
 from app.schemas.clinic import Appointment, Doctor, Patient, Specialty, Weekday
 from app.services.action_service import ActionService
 
-DayText = Annotated[
-    str, StringConstraints(strip_whitespace=True, min_length=1, max_length=20)
+ShortText = Annotated[
+    str, StringConstraints(strip_whitespace=True, min_length=1, max_length=30)
 ]
 DoctorId = Annotated[
     str, StringConstraints(strip_whitespace=True, to_upper=True, max_length=10)
 ]
+DAY_HELP = "today, tomorrow, an English weekday name or a YYYY-MM-DD date"
+SPECIALTY_HELP = "dentistry, dermatology, pediatrics or general"
 NOON = time(12, 0)
 EVENING = time(17, 0)
 
@@ -47,24 +49,22 @@ class PartOfDay(StrEnum):
 
 
 class ListDoctorsArgs(BaseModel):
-    specialty: Specialty | None = Field(
-        default=None, description="Only doctors of this specialty, or omit for all"
+    specialty: ShortText | None = Field(
+        default=None, description=f"{SPECIALTY_HELP}, or omit for all doctors"
     )
 
 
 class FindSlotsArgs(BaseModel):
-    day: DayText = Field(
-        description="today, tomorrow, an English weekday name or a YYYY-MM-DD date"
-    )
-    specialty: Specialty | None = Field(
-        default=None, description="Search every doctor of this specialty"
+    day: ShortText = Field(description=DAY_HELP)
+    specialty: ShortText | None = Field(
+        default=None, description=f"Search every doctor of: {SPECIALTY_HELP}"
     )
     doctor_id: DoctorId | None = Field(
         default=None, description="Search one doctor, e.g. D01"
     )
-    part_of_day: PartOfDay = Field(
-        default=PartOfDay.ANY,
-        description="morning is before 12:00, afternoon 12:00-17:00, evening after",
+    part_of_day: ShortText = Field(
+        default="any",
+        description="morning (before 12:00), afternoon (12:00-17:00), evening or any",
     )
 
 
@@ -74,10 +74,8 @@ class GetMyAppointmentsArgs(BaseModel):
 
 class ProposeBookingArgs(BaseModel):
     doctor_id: DoctorId = Field(description="Doctor ID from the tools, e.g. D01")
-    day: DayText = Field(
-        description="today, tomorrow, an English weekday name or a YYYY-MM-DD date"
-    )
-    start: time = Field(description="Start time in 24-hour HH:MM, e.g. 10:00")
+    day: ShortText = Field(description=DAY_HELP)
+    start: ShortText = Field(description="Start time in 24-hour HH:MM, e.g. 10:00")
 
 
 class ProposeCancellationArgs(BaseModel):
@@ -86,10 +84,8 @@ class ProposeCancellationArgs(BaseModel):
 
 class ProposeRescheduleArgs(BaseModel):
     appointment_id: int = Field(description="Appointment ID from get_my_appointments")
-    day: DayText = Field(
-        description="New day: today, tomorrow, an English weekday name or YYYY-MM-DD"
-    )
-    start: time = Field(description="New start time in 24-hour HH:MM, e.g. 10:00")
+    day: ShortText = Field(description=f"New day: {DAY_HELP}")
+    start: ShortText = Field(description="New start time in 24-hour HH:MM, e.g. 10:00")
 
 
 class PatientTools:
@@ -109,24 +105,25 @@ class PatientTools:
         self._conversation_id = conversation_id
         self._now = now
 
-    def list_doctors(self, specialty: Specialty | None = None) -> dict:
-        doctors = self._clinic.list_doctors(specialty)
+    def list_doctors(self, specialty: str | None = None) -> dict:
+        doctors = self._clinic.list_doctors(parse_specialty(specialty))
         return {"doctors": [doctor_summary(doctor) for doctor in doctors]}
 
     def find_slots(
         self,
         day: str,
-        specialty: Specialty | None = None,
+        specialty: str | None = None,
         doctor_id: str | None = None,
-        part_of_day: PartOfDay = PartOfDay.ANY,
+        part_of_day: str = "any",
     ) -> dict:
         if doctor_id is None and specialty is None:
             raise ToolError("Give a specialty or a doctor_id")
         target = resolve_day(day, self._now.date())
+        part = parse_part_of_day(part_of_day)
         doctors = (
             [self._doctor(doctor_id)]
             if doctor_id
-            else self._clinic.list_doctors(specialty)
+            else self._clinic.list_doctors(parse_specialty(specialty))
         )
         with self._database.connect() as connection:
             appointments = AppointmentRepository(connection)
@@ -138,13 +135,13 @@ class PatientTools:
                         doctor,
                         target,
                         appointments.booked_times(doctor.doctor_id, target),
-                        part_of_day,
+                        part,
                     ),
                 }
                 for doctor in doctors
                 if any(block.day == Weekday.of(target) for block in doctor.schedule)
             ]
-        return day_ref(target) | {"part_of_day": part_of_day, "doctors": results}
+        return day_ref(target) | {"part_of_day": part, "doctors": results}
 
     def get_my_appointments(self) -> dict:
         with self._database.connect() as connection:
@@ -156,7 +153,7 @@ class PatientTools:
             "appointments": [self._appointment_summary(a) for a in upcoming],
         }
 
-    def propose_booking(self, doctor_id: str, day: str, start: time) -> dict:
+    def propose_booking(self, doctor_id: str, day: str, start: str) -> dict:
         doctor = self._doctor(doctor_id)
         starts_at = self._starts_at(day, start)
         self._propose(BookProposal(doctor_id=doctor.doctor_id, starts_at=starts_at))
@@ -169,7 +166,7 @@ class PatientTools:
             self._find_appointment(appointment_id)
         )
 
-    def propose_reschedule(self, appointment_id: int, day: str, start: time) -> dict:
+    def propose_reschedule(self, appointment_id: int, day: str, start: str) -> dict:
         starts_at = self._starts_at(day, start)
         self._propose(
             RescheduleProposal(appointment_id=appointment_id, starts_at=starts_at)
@@ -191,10 +188,8 @@ class PatientTools:
             raise ToolError(f"Unknown doctor {doctor_id}; use list_doctors")
         return doctor
 
-    def _starts_at(self, day: str, start: time) -> datetime:
-        return datetime.combine(
-            resolve_day(day, self._now.date()), start.replace(tzinfo=None)
-        )
+    def _starts_at(self, day: str, start: str) -> datetime:
+        return datetime.combine(resolve_day(day, self._now.date()), parse_start(start))
 
     def _find_appointment(self, appointment_id: int) -> Appointment:
         with self._database.connect() as connection:
@@ -256,6 +251,34 @@ def resolve_day(text: str, today: date) -> date:
     if day < today:
         raise ToolError(f"{day.isoformat()} is in the past")
     return day
+
+
+def parse_specialty(value: str | None) -> Specialty | None:
+    if value is None:
+        return None
+    try:
+        return Specialty(value.strip().casefold())
+    except ValueError as error:
+        raise ToolError(f"Unknown specialty {value!r}; use {SPECIALTY_HELP}") from error
+
+
+def parse_part_of_day(value: str) -> PartOfDay:
+    try:
+        return PartOfDay(value.strip().casefold())
+    except ValueError as error:
+        raise ToolError(
+            f"Unknown part of day {value!r}; use morning, afternoon, evening or any"
+        ) from error
+
+
+def parse_start(value: str) -> time:
+    try:
+        start = time.fromisoformat(value.strip())
+    except ValueError as error:
+        raise ToolError(
+            f"Unknown time {value!r}; use 24-hour HH:MM such as 14:30"
+        ) from error
+    return start.replace(tzinfo=None)
 
 
 def doctor_summary(doctor: Doctor) -> dict:
