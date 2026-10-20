@@ -1,6 +1,6 @@
-# AI Agent Template
+# Appointment Booking Agent
 
-A production-ready Python starting point for tool-calling LLM agents.
+A tool-calling agent that books, cancels and reschedules clinic appointments after patient confirmation.
 
 ## Quick Start
 

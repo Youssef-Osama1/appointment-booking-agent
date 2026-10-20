@@ -20,7 +20,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     await app.state.llm_client.close()
 
 
-app = FastAPI(title="AI Agent Template", lifespan=lifespan)
+app = FastAPI(title="Appointment Booking Agent", lifespan=lifespan)
 app.include_router(api_router)
 
 
