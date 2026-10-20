@@ -1,0 +1,70 @@
+{
+  "slot_minutes": 30,
+  "doctors": [
+    {
+      "doctor_id": "D01",
+      "name": "Dr. Karim Adel",
+      "specialty": "dentistry",
+      "schedule": [
+        {"day": "saturday", "start": "09:00", "end": "13:00"},
+        {"day": "monday", "start": "09:00", "end": "13:00"},
+        {"day": "thursday", "start": "09:00", "end": "13:00"}
+      ]
+    },
+    {
+      "doctor_id": "D02",
+      "name": "Dr. Mona Hassan",
+      "specialty": "dentistry",
+      "schedule": [
+        {"day": "sunday", "start": "16:00", "end": "20:00"},
+        {"day": "tuesday", "start": "16:00", "end": "20:00"},
+        {"day": "thursday", "start": "16:00", "end": "20:00"}
+      ]
+    },
+    {
+      "doctor_id": "D03",
+      "name": "Dr. Ahmed Farouk",
+      "specialty": "dermatology",
+      "schedule": [
+        {"day": "saturday", "start": "10:00", "end": "14:00"},
+        {"day": "tuesday", "start": "10:00", "end": "14:00"}
+      ]
+    },
+    {
+      "doctor_id": "D04",
+      "name": "Dr. Salma Nabil",
+      "specialty": "pediatrics",
+      "schedule": [
+        {"day": "sunday", "start": "09:00", "end": "12:00"},
+        {"day": "wednesday", "start": "09:00", "end": "12:00"},
+        {"day": "wednesday", "start": "17:00", "end": "20:00"}
+      ]
+    },
+    {
+      "doctor_id": "D05",
+      "name": "Dr. Hossam Fathy",
+      "specialty": "general",
+      "schedule": [
+        {"day": "sunday", "start": "10:00", "end": "14:00"},
+        {"day": "monday", "start": "10:00", "end": "14:00"},
+        {"day": "tuesday", "start": "10:00", "end": "14:00"},
+        {"day": "wednesday", "start": "10:00", "end": "14:00"},
+        {"day": "thursday", "start": "10:00", "end": "14:00"}
+      ]
+    }
+  ],
+  "patients": [
+    {"patient_id": "P1001", "name": "Omar Khaled"},
+    {"patient_id": "P1002", "name": "Nour Ali"},
+    {"patient_id": "P1003", "name": "Hana Mahmoud"}
+  ],
+  "appointments": [
+    {"appointment_id": 1001, "patient_id": "P1001", "doctor_id": "D01", "starts_at": "2026-10-17T09:00"},
+    {"appointment_id": 1002, "patient_id": "P1001", "doctor_id": "D03", "starts_at": "2026-10-24T11:00"},
+    {"appointment_id": 1003, "patient_id": "P1002", "doctor_id": "D01", "starts_at": "2026-10-22T10:30"},
+    {"appointment_id": 1004, "patient_id": "P1002", "doctor_id": "D02", "starts_at": "2026-10-22T17:00"},
+    {"appointment_id": 1005, "patient_id": "P1003", "doctor_id": "D04", "starts_at": "2026-10-21T09:30"},
+    {"appointment_id": 1006, "patient_id": "P1001", "doctor_id": "D05", "starts_at": "2026-10-20T11:00", "status": "cancelled"},
+    {"appointment_id": 1007, "patient_id": "P1003", "doctor_id": "D01", "starts_at": "2026-10-22T11:00"}
+  ]
+}
