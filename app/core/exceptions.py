@@ -8,3 +8,23 @@ class ToolError(Exception):
 
 class AgentStepLimitError(Exception):
     pass
+
+
+class PatientNotFoundError(Exception):
+    pass
+
+
+class ConversationNotFoundError(Exception):
+    pass
+
+
+class ActionNotFoundError(Exception):
+    pass
+
+
+class ActionExpiredError(Exception):
+    pass
+
+
+class ActionConflictError(Exception):
+    pass
