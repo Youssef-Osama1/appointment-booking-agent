@@ -11,6 +11,7 @@ from app.core.exceptions import (
 from app.repositories.action_repository import ActionRepository
 from app.repositories.appointment_repository import AppointmentRepository
 from app.repositories.clinic_repository import ClinicRepository
+from app.repositories.conversation_repository import ConversationRepository
 from app.repositories.database import Database
 from app.schemas.actions import (
     ActionStatus,
@@ -74,6 +75,12 @@ class ActionService:
                 action.proposal, rules, AppointmentRepository(connection), patient_id
             )
             actions.mark_confirmed(action_id, result)
+            ConversationRepository(connection).append(
+                action.conversation_id,
+                "system",
+                confirmation_note(action.proposal, result, self._clinic),
+                now,
+            )
         logger.info(
             "Confirmed action: action_id=%s kind=%s appointment_id=%s",
             action_id,
@@ -131,3 +138,18 @@ def execute(
                 return appointment.model_copy(update={"starts_at": proposal.starts_at})
     except sqlite3.IntegrityError as error:
         raise ActionConflictError("That time is no longer available") from error
+
+
+def confirmation_note(
+    proposal: Proposal, result: Appointment, clinic: ClinicRepository
+) -> str:
+    doctor = clinic.find_doctor(result.doctor_id).name
+    when = f"{result.starts_at:%A %Y-%m-%d at %H:%M}"
+    number = f"appointment {result.appointment_id}"
+    match proposal:
+        case BookProposal():
+            return f"The patient confirmed: booked {number} with {doctor} on {when}."
+        case CancelProposal():
+            return f"The patient confirmed: cancelled {number} with {doctor} on {when}."
+        case RescheduleProposal():
+            return f"The patient confirmed: moved {number} with {doctor} to {when}."

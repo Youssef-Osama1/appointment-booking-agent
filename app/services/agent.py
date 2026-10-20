@@ -1,6 +1,6 @@
 import json
 import logging
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 
 from pydantic import BaseModel, ValidationError
@@ -73,9 +73,11 @@ async def run_agent(
     system: str,
     message: str,
     max_steps: int,
+    history: Sequence[dict] = (),
 ) -> AgentResult:
     messages = [
         {"role": "system", "content": system},
+        *history,
         {"role": "user", "content": message},
     ]
     schemas = registry.schemas()

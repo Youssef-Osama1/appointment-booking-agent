@@ -1,4 +1,5 @@
 import logging
+import sqlite3
 import threading
 from datetime import datetime
 from pathlib import Path
@@ -17,6 +18,7 @@ from app.repositories.appointment_repository import (
     initialize_database,
 )
 from app.repositories.clinic_repository import ClinicRepository
+from app.repositories.conversation_repository import ConversationRepository
 from app.repositories.database import Database
 from app.schemas.actions import (
     ActionStatus,
@@ -35,6 +37,13 @@ CANCEL = CancelProposal(appointment_id=1002)
 RESCHEDULE = RescheduleProposal(
     appointment_id=1002, starts_at=datetime(2026, 10, 27, 12, 0)
 )
+CONVERSATIONS = {
+    "c1": "P1001",
+    "c2": "P1001",
+    "c-P1001": "P1001",
+    "c-P1002": "P1002",
+    "c-P1003": "P1003",
+}
 
 
 @pytest.fixture
@@ -46,6 +55,12 @@ def clinic():
 def database(tmp_path, clinic):
     database = Database(tmp_path / "booking.db")
     initialize_database(database, clinic.seed_appointments)
+    with database.connect() as connection:
+        connection.executemany(
+            "INSERT INTO conversations (conversation_id, patient_id, created_at) "
+            "VALUES (?, ?, '2026-10-19T08:00:00')",
+            CONVERSATIONS.items(),
+        )
     return database
 
 
@@ -80,6 +95,20 @@ def appointment_rows(database):
 def find_action(database, action_id, patient_id="P1001"):
     with database.connect() as connection:
         return ActionRepository(connection).find(action_id, patient_id)
+
+
+def history(database, conversation_id="c1"):
+    with database.connect() as connection:
+        return ConversationRepository(connection).recent(conversation_id, 10)
+
+
+def system_notes(database, conversation_id="c1"):
+    with database.connect() as connection:
+        rows = connection.execute(
+            "SELECT content FROM messages WHERE conversation_id = ? AND role = 'system'",
+            (conversation_id,),
+        )
+        return [row["content"] for row in rows]
 
 
 def find_appointment(database, appointment_id, patient_id="P1001"):
@@ -270,7 +299,7 @@ def test_confirm_respects_the_deadline(make_service, database, now, expired):
 
 def test_confirm_rechecks_the_slot(service, database):
     mine = service.propose("c1", "P1001", BOOK)
-    theirs = service.propose("c2", "P1002", BOOK)
+    theirs = service.propose("c-P1002", "P1002", BOOK)
     service.confirm(theirs.action_id, "P1002")
     before = appointment_rows(database)
 
@@ -371,3 +400,84 @@ def test_propose_and_confirm_are_logged(service, caplog):
     assert any("Proposed action" in m and "kind=book" in m for m in messages)
     assert any("appointment_id=1008" in m for m in messages)
     assert any("already confirmed" in m for m in messages)
+
+
+@pytest.mark.parametrize(
+    ("proposal", "note"),
+    [
+        (
+            BOOK,
+            (
+                "The patient confirmed: booked appointment 1008 with Dr. Karim Adel "
+                "on Thursday 2026-10-22 at 10:00."
+            ),
+        ),
+        (
+            CANCEL,
+            (
+                "The patient confirmed: cancelled appointment 1002 with "
+                "Dr. Ahmed Farouk on Saturday 2026-10-24 at 11:00."
+            ),
+        ),
+        (
+            RESCHEDULE,
+            (
+                "The patient confirmed: moved appointment 1002 with Dr. Ahmed Farouk "
+                "to Tuesday 2026-10-27 at 12:00."
+            ),
+        ),
+    ],
+)
+def test_confirm_writes_a_note_into_the_conversation(service, database, proposal, note):
+    action = service.propose("c1", "P1001", proposal)
+
+    service.confirm(action.action_id, "P1001")
+
+    assert history(database) == []
+    assert system_notes(database) == [note]
+
+
+def test_confirm_note_goes_to_the_action_conversation_only(service, database):
+    action = service.propose("c2", "P1001", BOOK)
+
+    service.confirm(action.action_id, "P1001")
+
+    assert system_notes(database, "c1") == []
+    assert len(system_notes(database, "c2")) == 1
+
+
+def test_confirm_twice_writes_one_note(service, database):
+    action = service.propose("c1", "P1001", BOOK)
+
+    service.confirm(action.action_id, "P1001")
+    service.confirm(action.action_id, "P1001")
+
+    assert len(system_notes(database)) == 1
+
+
+def test_failed_confirm_writes_no_note(service, database):
+    mine = service.propose("c1", "P1001", BOOK)
+    theirs = service.propose("c-P1002", "P1002", BOOK)
+    service.confirm(theirs.action_id, "P1002")
+
+    with pytest.raises(ActionConflictError):
+        service.confirm(mine.action_id, "P1001")
+
+    assert system_notes(database) == []
+
+
+def test_propose_writes_nothing_into_the_conversation(service, database):
+    service.propose("c1", "P1001", BOOK)
+
+    assert system_notes(database) == []
+
+
+def test_confirm_without_a_conversation_books_nothing(service, database):
+    action = service.propose("ghost", "P1001", BOOK)
+    before = appointment_rows(database)
+
+    with pytest.raises(sqlite3.IntegrityError, match="FOREIGN KEY"):
+        service.confirm(action.action_id, "P1001")
+
+    assert appointment_rows(database) == before
+    assert find_action(database, action.action_id).status is ActionStatus.PENDING

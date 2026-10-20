@@ -32,6 +32,23 @@ CREATE TABLE IF NOT EXISTS pending_actions (
 
 CREATE UNIQUE INDEX IF NOT EXISTS one_pending_action_per_conversation
     ON pending_actions (conversation_id) WHERE status = 'pending';
+
+CREATE TABLE IF NOT EXISTS conversations (
+    conversation_id TEXT PRIMARY KEY,
+    patient_id TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS messages (
+    message_id INTEGER PRIMARY KEY,
+    conversation_id TEXT NOT NULL REFERENCES conversations (conversation_id),
+    role TEXT NOT NULL CHECK (role IN ('user', 'assistant', 'system')),
+    content TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS messages_by_conversation
+    ON messages (conversation_id, message_id);
 """
 
 

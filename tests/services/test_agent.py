@@ -276,3 +276,56 @@ async def test_empty_final_reply_raises(registry):
 
     with pytest.raises(LLMOutputError, match="empty reply"):
         await run(llm, registry)
+
+
+HISTORY = [
+    {"role": "user", "content": "is item 7 in stock?"},
+    {"role": "assistant", "content": "Yes, item 7 is in stock."},
+    {"role": "system", "content": "Update: item 7 was reserved."},
+]
+
+
+async def test_history_goes_between_system_and_new_message(registry):
+    llm = FakeLLM([says("Reserved.")])
+
+    await run_agent(llm, registry, "system prompt", "did it work?", 5, history=HISTORY)
+
+    assert llm.calls[0]["messages"] == [
+        {"role": "system", "content": "system prompt"},
+        *HISTORY,
+        {"role": "user", "content": "did it work?"},
+    ]
+
+
+async def test_history_stays_before_tool_messages(registry):
+    llm = FakeLLM([asks(tool_call("lookup", '{"item_id": 7}')), says("Done.")])
+
+    await run_agent(llm, registry, "system prompt", "and now?", 5, history=HISTORY)
+
+    roles = [m["role"] for m in llm.calls[1]["messages"]]
+    assert roles == [
+        "system",
+        "user",
+        "assistant",
+        "system",
+        "user",
+        "assistant",
+        "tool",
+    ]
+
+
+async def test_history_is_not_changed(registry):
+    history = copy.deepcopy(HISTORY)
+    llm = FakeLLM([asks(tool_call("lookup", '{"item_id": 7}')), says("Done.")])
+
+    await run_agent(llm, registry, "system prompt", "and now?", 5, history=history)
+
+    assert history == HISTORY
+
+
+async def test_history_defaults_to_empty(registry):
+    llm = FakeLLM([says("Hello!")])
+
+    await run_agent(llm, registry, "system prompt", "hi", 5)
+
+    assert len(llm.calls[0]["messages"]) == 2
