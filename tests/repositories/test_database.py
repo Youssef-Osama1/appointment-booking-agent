@@ -43,6 +43,8 @@ def test_create_schema_makes_the_folder_and_tables(tmp_path):
         "appointments",
         "one_booking_per_doctor_slot",
         "one_booking_per_patient_slot",
+        "pending_actions",
+        "one_pending_action_per_conversation",
     } <= tables
 
 
