@@ -1,0 +1,13 @@
+.env
+.venv
+.git
+__pycache__
+*.py[cod]
+.pytest_cache
+.ruff_cache
+.ipynb_checkpoints
+tests
+evals
+playground
+docs
+data/booking.db*
