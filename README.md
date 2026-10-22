@@ -1,5 +1,7 @@
 # Appointment Booking Agent
 
+[![CI](https://github.com/Youssef-Osama1/appointment-booking-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/Youssef-Osama1/appointment-booking-agent/actions/workflows/ci.yml)
+
 A clinic booking agent that finds free times, books, cancels and reschedules appointments, where the model can only propose a change and the patient confirms it.
 
 Send a patient message and the agent calls tools over the clinic's doctors, schedules and
@@ -51,9 +53,45 @@ and seeded from `data/clinic.json` on first start.
 
 Chat with `POST /chat` and confirm a pending action with `POST /actions/{action_id}/confirm`.
 
+## Docker
+
+```bash
+docker build -f docker/Dockerfile -t appointment-booking-agent .
+docker run --rm -p 8000:8000 --env-file .env appointment-booking-agent
+```
+
+The image installs runtime dependencies only, includes `data/clinic.json`, runs as a
+non-root user and listens on `$PORT` (default 8000). The local `data/booking.db` is never
+copied into the image: the container creates and seeds its own database in `data/`, which
+is the only folder the app user can write to. `.env` is never copied into the image, so
+secrets are passed at run time. Values in `.env` must not be quoted for `--env-file`.
+
+## CI and Deployment
+
+Every push to `main` and every pull request runs `.github/workflows/ci.yml`: ruff lint,
+ruff format check, pytest and a Docker build.
+
+The app runs on Render as a Docker web service:
+
+| Setting | Value |
+|---|---|
+| Dockerfile path | `./docker/Dockerfile` |
+| Build context | `.` |
+| Health check path | `/health` |
+| Auto-deploy | After CI checks pass |
+| Environment | `LLM_API_KEY`, `NOW_OVERRIDE` (other settings have defaults) |
+
+`NOW_OVERRIDE=2026-10-19T09:00` fixes the clinic clock, so free slots and the seeded
+appointments line up. Without it, the real time is used and the sample appointments end
+up in the past.
+
+The free instance has no persistent disk. The database is reset to the seed data on every
+deploy, restart and spin-down, so bookings and conversations do not survive them.
+
 ## Project Structure
 
 ```text
+├── .github/          # CI workflow
 ├── app/
 │   ├── api/          # Routes, dependencies and request/response models
 │   ├── config/       # Settings loaded from .env
@@ -65,7 +103,7 @@ Chat with `POST /chat` and confirm a pending action with `POST /actions/{action_
 │   ├── tools/        # Patient tools
 │   └── main.py       # FastAPI app entry point
 ├── data/             # Sample doctors, schedules, patients and appointments
-├── docker/           # Docker configurations
+├── docker/           # Dockerfile
 ├── docs/             # Documentation files
 ├── evals/            # Eval cases and runner
 ├── playground/       # Experimental code, never imported by app/
