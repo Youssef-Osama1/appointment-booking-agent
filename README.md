@@ -53,6 +53,64 @@ and seeded from `data/clinic.json` on first start.
 
 Chat with `POST /chat` and confirm a pending action with `POST /actions/{action_id}/confirm`.
 
+## MCP Server
+
+The same tools are also served over MCP, so a client such as Claude Desktop can use them.
+The client runs its own model and loop. This server only exposes the tools, runs over stdio
+on the patient's machine and uses the local `data/booking.db`. It never calls the LLM, but
+settings still need `LLM_API_KEY` in `.env`.
+
+Tools: the six above plus `request_confirmation`.
+
+- **Identity comes from the client config.** `MCP_PATIENT_ID` is read once at start-up and
+  bound to the tools in Python. The server stops if the patient is unknown.
+- **The model still cannot approve.** `request_confirmation` takes no arguments. It asks the
+  patient with an MCP elicitation form, written from the stored proposal, and only an
+  accepted form runs the same confirm code as the API. Decline or cancel changes nothing.
+- **Clients without forms get a terminal command.** Claude Desktop does not support
+  elicitation, so the tool tells the model to ask the patient to run:
+
+```bash
+uv run python -m app.mcp_server confirm
+```
+
+It shows the patient's latest pending proposal and applies it only on `y`. It refuses
+piped input, so a client with a shell cannot answer for the patient. Set `MCP_PATIENT_ID`
+in `.env` for this command.
+
+### Connect Claude Desktop
+
+1. Quit Claude Desktop fully, or it may overwrite your edit when it closes.
+2. Open Settings > Developer > Edit Config and add:
+
+```json
+{
+  "mcpServers": {
+    "appointment-booking": {
+      "command": "uv",
+      "args": [
+        "run", "--directory", "/path/to/appointment-booking-agent",
+        "python", "-m", "app.mcp_server"
+      ],
+      "env": { "MCP_PATIENT_ID": "P1001" }
+    }
+  }
+}
+```
+
+3. Start Claude Desktop, open a chat and ask: "What dentist slots are free tomorrow?"
+
+`--directory` starts the server in the project folder, so it finds `.env`. If the server
+does not show up, replace `"uv"` with the full path from `where uv` (Windows) or `which uv`.
+On Windows, write the paths with double backslashes. Errors go to
+`mcp-server-appointment-booking.log` in Claude Desktop's logs folder.
+
+To try the tools without a model, use MCP Inspector:
+
+```bash
+npx @modelcontextprotocol/inspector -e MCP_PATIENT_ID=P1001 uv run python -m app.mcp_server
+```
+
 ## Docker
 
 ```bash
@@ -96,6 +154,7 @@ deploy, restart and spin-down, so bookings and conversations do not survive them
 │   ├── api/          # Routes, dependencies and request/response models
 │   ├── config/       # Settings loaded from .env
 │   ├── core/         # Logging and exceptions
+│   ├── mcp_server/   # MCP server and terminal approval
 │   ├── prompts/      # System prompt and tool descriptions
 │   ├── repositories/ # SQLite access for appointments, actions and conversations
 │   ├── schemas/      # Clinic and pending action models
