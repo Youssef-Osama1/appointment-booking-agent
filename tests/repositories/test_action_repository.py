@@ -172,6 +172,40 @@ def test_find_pending_still_returns_an_expired_action(repository):
     assert found.is_expired(EXPIRES) is True
 
 
+def test_find_latest_pending_returns_the_newest_for_that_patient(repository):
+    older = repository.create("c1", "P1001", BOOK, NOW, EXPIRES)
+    newer = repository.create(
+        "c2", "P1001", CANCEL, NOW + timedelta(minutes=1), EXPIRES
+    )
+    repository.create("c3", "P1002", BOOK, NOW + timedelta(minutes=2), EXPIRES)
+
+    assert repository.find_latest_pending("P1001") == newer
+    assert repository.find_latest_pending("P1001") != older
+
+
+def test_find_latest_pending_breaks_a_same_second_tie_by_order(repository):
+    create(repository, conversation_id="c1")
+    second = create(repository, proposal=CANCEL, conversation_id="c2")
+
+    assert repository.find_latest_pending("P1001") == second
+
+
+def test_find_latest_pending_skips_finished_actions(repository):
+    confirmed = create(repository, conversation_id="c1")
+    repository.mark_confirmed(confirmed.action_id, BOOKED)
+    create(repository, conversation_id="c2")
+    repository.supersede("c2")
+
+    assert repository.find_latest_pending("P1001") is None
+    assert repository.find_latest_pending("P1002") is None
+
+
+def test_find_latest_pending_still_returns_an_expired_action(repository):
+    action = create(repository)
+
+    assert repository.find_latest_pending("P1001") == action
+
+
 def test_mark_confirmed_stores_the_result(repository):
     action = create(repository)
 

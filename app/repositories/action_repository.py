@@ -79,7 +79,7 @@ class ActionRepository:
         row = self._connection.execute(
             f"SELECT {COLUMNS} FROM pending_actions "
             "WHERE patient_id = ? AND status = ? "
-            "ORDER BY created_at DESC LIMIT 1",
+            "ORDER BY created_at DESC, rowid DESC LIMIT 1",
             (patient_id, PENDING),
         ).fetchone()
         return to_action(row) if row else None
