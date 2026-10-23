@@ -1,5 +1,8 @@
+import sys
+
 from app.config.settings import get_settings
 from app.core.logger import setup_logging
+from app.mcp_server.approval import confirm_in_terminal
 from app.mcp_server.server import build_server
 from app.repositories.conversation_repository import ConversationRepository
 from app.repositories.storage import open_storage
@@ -14,6 +17,8 @@ def main() -> None:
         raise SystemExit(
             f"Set MCP_PATIENT_ID to a known patient, got {settings.mcp_patient_id!r}"
         )
+    if sys.argv[1:] == ["confirm"]:
+        raise SystemExit(confirm_in_terminal(clinic, database, settings, patient))
     with database.transaction() as connection:
         conversation_id = ConversationRepository(connection).create(
             patient.patient_id, settings.current_time()

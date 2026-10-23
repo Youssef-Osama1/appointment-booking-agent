@@ -75,6 +75,15 @@ class ActionRepository:
         ).fetchone()
         return to_action(row) if row else None
 
+    def find_latest_pending(self, patient_id: str) -> PendingAction | None:
+        row = self._connection.execute(
+            f"SELECT {COLUMNS} FROM pending_actions "
+            "WHERE patient_id = ? AND status = ? "
+            "ORDER BY created_at DESC LIMIT 1",
+            (patient_id, PENDING),
+        ).fetchone()
+        return to_action(row) if row else None
+
     def mark_confirmed(self, action_id: str, result: Appointment) -> bool:
         cursor = self._connection.execute(
             "UPDATE pending_actions SET status = ?, result = ? "

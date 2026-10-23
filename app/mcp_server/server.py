@@ -1,9 +1,9 @@
 from collections.abc import Callable
-from datetime import datetime
 from typing import Annotated
 
 from mcp.server.mcpserver import (
     AcceptedElicitation,
+    Context,
     Elicit,
     ElicitationResult,
     MCPServer,
@@ -14,12 +14,8 @@ from mcp_types import ToolAnnotations
 from pydantic import BaseModel, Field
 
 from app.config.settings import Settings
-from app.core.exceptions import (
-    ActionConflictError,
-    ActionExpiredError,
-    ActionNotFoundError,
-    ToolError,
-)
+from app.core.exceptions import ToolError
+from app.mcp_server.approval import APPROVAL_ERRORS, CONFIRM_COMMAND, describe
 from app.prompts.booking import (
     FIND_SLOTS_DESCRIPTION,
     GET_MY_APPOINTMENTS_DESCRIPTION,
@@ -29,14 +25,9 @@ from app.prompts.booking import (
     PROPOSE_RESCHEDULE_DESCRIPTION,
 )
 from app.repositories.action_repository import ActionRepository
-from app.repositories.appointment_repository import AppointmentRepository
 from app.repositories.clinic_repository import ClinicRepository
 from app.repositories.database import Database
-from app.schemas.actions import (
-    BookProposal,
-    CancelProposal,
-    PendingAction,
-)
+from app.schemas.actions import PendingAction
 from app.schemas.clinic import Patient
 from app.services.action_service import ActionService
 from app.tools.booking import (
@@ -55,6 +46,10 @@ INSTRUCTIONS = (
 REQUEST_CONFIRMATION_DESCRIPTION = (
     "Ask the patient to approve the waiting proposal. The patient answers in a "
     "form; only their approval books, cancels or moves anything."
+)
+NO_FORMS = (
+    "This app cannot show the approval form. Nothing changed. Tell the patient to "
+    f"approve it in a terminal in the project folder with: {CONFIRM_COMMAND}"
 )
 
 
@@ -161,29 +156,14 @@ def build_server(
             )
         return action
 
-    def describe(action: PendingAction) -> str:
-        proposal = action.proposal
-        if isinstance(proposal, BookProposal):
-            doctor = clinic.find_doctor(proposal.doctor_id).name
-            return f"Book {doctor} on {when(proposal.starts_at)}?"
-        with database.connect() as connection:
-            current = AppointmentRepository(connection).find(
-                proposal.appointment_id, patient.patient_id
-            )
-        doctor = clinic.find_doctor(current.doctor_id).name
-        if isinstance(proposal, CancelProposal):
-            return (
-                f"Cancel your appointment with {doctor} on {when(current.starts_at)}?"
-            )
-        return (
-            f"Move your appointment with {doctor} from {when(current.starts_at)} "
-            f"to {when(proposal.starts_at)}?"
-        )
-
     def ask_patient(
         action: Annotated[PendingAction, Resolve(waiting_action)],
+        ctx: Context,
     ) -> Elicit[Approval]:
-        return Elicit(describe(action), Approval)
+        capabilities = ctx.client_capabilities
+        if capabilities is None or capabilities.elicitation is None:
+            raise MCPToolError(NO_FORMS)
+        return Elicit(describe(action, clinic, database), Approval)
 
     @server.tool(description=REQUEST_CONFIRMATION_DESCRIPTION)
     def request_confirmation(
@@ -196,7 +176,7 @@ def build_server(
             confirmed = ActionService(database, clinic, settings).confirm(
                 action.action_id, patient.patient_id
             )
-        except (ActionNotFoundError, ActionExpiredError, ActionConflictError) as error:
+        except APPROVAL_ERRORS as error:
             raise MCPToolError(str(error)) from error
         return {
             "status": "confirmed",
@@ -204,7 +184,3 @@ def build_server(
         }
 
     return server
-
-
-def when(moment: datetime) -> str:
-    return f"{moment:%A %Y-%m-%d at %H:%M}"
