@@ -29,6 +29,7 @@ class Settings(BaseSettings):
     now_override: datetime | None = None
     pending_action_ttl_minutes: int = Field(default=10, ge=1, le=60)
     history_max_turns: int = Field(default=10, ge=1, le=50)
+    mcp_patient_id: str | None = None
 
     @field_validator("clinic_timezone")
     @classmethod

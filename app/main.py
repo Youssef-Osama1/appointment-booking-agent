@@ -16,9 +16,7 @@ from app.core.exceptions import (
     PatientNotFoundError,
 )
 from app.core.logger import setup_logging
-from app.repositories.appointment_repository import initialize_database
-from app.repositories.clinic_repository import ClinicRepository
-from app.repositories.database import Database
+from app.repositories.storage import open_storage
 from app.services.llm_client import LLMClient
 
 
@@ -26,9 +24,7 @@ from app.services.llm_client import LLMClient
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     settings = get_settings()
     setup_logging(settings.log_level)
-    app.state.clinic = ClinicRepository.from_file(settings.clinic_path)
-    app.state.database = Database(settings.database_path)
-    initialize_database(app.state.database, app.state.clinic.seed_appointments)
+    app.state.clinic, app.state.database = open_storage(settings)
     app.state.llm_client = LLMClient(settings)
     yield
     await app.state.llm_client.close()
