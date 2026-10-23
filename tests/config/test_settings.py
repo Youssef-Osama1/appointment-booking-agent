@@ -105,3 +105,15 @@ def test_pending_action_ttl_must_stay_in_range(minutes):
 def test_history_max_turns_must_stay_in_range(turns):
     with pytest.raises(ValidationError):
         Settings(_env_file=None, llm_api_key="k", history_max_turns=turns)
+
+
+def test_mcp_patient_id_is_unset_by_default(monkeypatch):
+    monkeypatch.delenv("MCP_PATIENT_ID", raising=False)
+
+    assert Settings(_env_file=None, llm_api_key="k").mcp_patient_id is None
+
+
+def test_mcp_patient_id_reads_from_environment(monkeypatch):
+    monkeypatch.setenv("MCP_PATIENT_ID", "P1002")
+
+    assert Settings(_env_file=None, llm_api_key="k").mcp_patient_id == "P1002"
